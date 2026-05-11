@@ -20,7 +20,7 @@ class MRIDataset(Dataset):
         label = self.dataframe.loc[idx, 'Label']
 
         # Delegate preprocessing to the injected strategy
-        img_array = self.preprocessor.process(file_path)
+        img_array = self.preprocessor.preprocess(file_path)
 
         # Add channel dimension: (D, H, W) -> (1, D, H, W)
         img_tensor = torch.tensor(img_array, dtype=torch.float32).unsqueeze(0)

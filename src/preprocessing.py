@@ -7,7 +7,7 @@ class MinMaxNormalizer(PreprocessorInterface):
     SRP: single responsibility — apply min-max normalization to a 3D MRI image.
     OCP: to add z-score or other strategies, create a new class without touching this one.
     '''
-    def process(self, file_path: str) -> np.ndarray:
+    def preprocess(self, file_path: str) -> np.ndarray:
         img = nib.load(file_path)
         img_data = np.squeeze(img.get_fdata())
 
@@ -25,7 +25,7 @@ class ZScoreNormalizer(PreprocessorInterface):
     Alternative preprocessor using z-score standardization.
     Drops in as a replacement anywhere PreprocessorInterface is expected.
     '''
-    def process(self, file_path: str) -> np.ndarray:
+    def preprocess(self, file_path: str) -> np.ndarray:
         img = nib.load(file_path)
         img_data = np.squeeze(img.get_fdata())
         std = np.std(img_data)

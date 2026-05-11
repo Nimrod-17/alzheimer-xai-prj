@@ -11,7 +11,7 @@ from src.trainer import ModelTrainer, BestModelSaver, TrainingOrchestrator
 
 # --- Configuration ---
 EXCEL_PATH = 'data/Demographic and Clinical Data/oasis_cross-sectional.xlsx'
-DATA_DIR = 'data/raw'
+DATA_DIR = 'data'
 SAVE_PATH = 'models/best_model.pth'
 BATCH_SIZE = 4
 NUM_EPOCHS = 30
@@ -21,7 +21,7 @@ VAL_SPLIT = 0.2
 def main():
     # 1. Load and match clinical data with MRI file paths
     parser = ExcelClinicalParser(excel_path=EXCEL_PATH)
-    resolver = MRIFileResolver(base_data_dir=DATA_DIR)
+    resolver = MRIFileResolver(base_data_dir=DATA_DIR, search_pattern="disc*/{id}/PROCESSED/MPRAGE/T88_111/*.hdr")
     data_loader = MRIDataLoader(parser=parser, resolver=resolver)
     df = data_loader.load_data()
 

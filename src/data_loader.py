@@ -50,11 +50,23 @@ class MRIDataLoader(DataLoaderInterface):
         df = self.parser.parse()
 
         print("Starting 3D image search...")
+        print(f"Base directory: {self.resolver.base_data_dir}") 
+
         valid_data = []
 
         for index, row in df.iterrows():
             patient_id = row['ID']
             path = self.resolver.resolve(patient_id)
+
+            if index < 3:  # stampa i primi 3 pattern per debug
+                import os, glob
+                pattern = os.path.join(
+                    self.resolver.base_data_dir,
+                    self.resolver.search_pattern.format(id=patient_id)
+                )
+                print(f"  Patient: {patient_id}")
+                print(f"  Pattern: {pattern}")
+                print(f"  Found: {glob.glob(pattern)}")
 
             if path:
                 valid_data.append({
