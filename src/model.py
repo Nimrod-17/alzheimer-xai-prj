@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 
+
 class Alzheimer3DCNN(nn.Module):
     """
-    A 3D Convolutional Neural Network designed to classify Alzheimer Disease from 3D MRI scans.
+    3D Convolutional Neural Network for Alzheimer's disease classification from MRI scans.
     """
 
     def __init__(self):
@@ -31,29 +32,24 @@ class Alzheimer3DCNN(nn.Module):
             nn.MaxPool3d(kernel_size=2, stride=2)
         )
 
+        # Reduces each feature map to a fixed (2, 2, 2) spatial size before flattening
         self.global_pool = nn.AdaptiveAvgPool3d((2, 2, 2))
 
-        # --- DECISION MAKING ---
+        # --- CLASSIFICATION HEAD ---
+        # 32 channels * 2 * 2 * 2 = 256 input features
         self.classifier = nn.Sequential(
-            nn.Linear(in_features = 256, out_features = 64),
+            nn.Linear(in_features=256, out_features=64),
             nn.ReLU(),
             nn.Dropout(p=0.5),
-            nn.Linear(in_features = 64, out_features = 2)
+            nn.Linear(in_features=64, out_features=2)
         )
 
-    def forward(self, x):
-        """
-        Defines how the data flows through the network.
-        """
-
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv_block1(x)
         x = self.conv_block2(x)
         x = self.conv_block3(x)
-
         x = self.global_pool(x)
-
-        x = torch.flatten(x, start_dim=1) # 1D vector
-
+        x = torch.flatten(x, start_dim=1)  # Flatten to 1D vector, keep batch dimension
         x = self.classifier(x)
         return x
     

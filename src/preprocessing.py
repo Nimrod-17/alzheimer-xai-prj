@@ -1,28 +1,35 @@
 import numpy as np
 import nibabel as nib
+from src.interfaces import PreprocessorInterface
 
-def load_and_preprocess_image(file_path):
-    """
-    Loads a 3D NIfTI/Analyze file and normalizes voxel values 
-    to a scale from 0.0 to 1.0 (Min-Max Scaling).
-    """
-    # 1. Load the image object
-    img = nib.load(file_path)
-    
-    # 2. Extract the raw numerical data array
-    img_data = img.get_fdata()
-    
-    # 3. Remove single-dimensional entries from the shape (e.g., [176, 208, 176, 1] becomes [176, 208, 176])
-    img_data = np.squeeze(img_data)
-    
-    # 4. Min-Max Normalization
-    min_val = np.min(img_data)
-    max_val = np.max(img_data)
-    
-    # Avoid division by zero for completely black images
-    if max_val - min_val > 0:
-        img_normalized = (img_data - min_val) / (max_val - min_val)
-    else:
-        img_normalized = img_data
+class MinMaxNormalizer(PreprocessorInterface):
+    '''
+    SRP: single responsibility — apply min-max normalization to a 3D MRI image.
+    OCP: to add z-score or other strategies, create a new class without touching this one.
+    '''
+    def process(self, file_path: str) -> np.ndarray:
+        img = nib.load(file_path)
+        img_data = np.squeeze(img.get_fdata())
+
+        min_val = np.min(img_data)
+        max_val = np.max(img_data)
+
+        # Avoid division by zero for completely blank images
+        if max_val - min_val > 0:
+            return (img_data - min_val) / (max_val - min_val)
         
-    return img_normalized
+        return img_data
+
+class ZScoreNormalizer(PreprocessorInterface):
+    '''
+    Alternative preprocessor using z-score standardization.
+    Drops in as a replacement anywhere PreprocessorInterface is expected.
+    '''
+    def process(self, file_path: str) -> np.ndarray:
+        img = nib.load(file_path)
+        img_data = np.squeeze(img.get_fdata())
+        std = np.std(img_data)
+        if std > 0:
+            return (img_data - np.mean(img_data)) / std
+        
+        return img_data

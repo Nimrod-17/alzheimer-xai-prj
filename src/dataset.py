@@ -1,26 +1,29 @@
 import torch
 from torch.utils.data import Dataset
-import numpy as np
-from src.preprocessing import load_and_preprocess_image
+import pandas as pd
+from src.interfaces import PreprocessorInterface
 
 class MRIDataset(Dataset):
     """
-    Custom PyToarch dataset for 3D MRI Alzheimer classification.
+    Custom PyTorch dataset for 3D MRI Alzheimer's classification.
+    Depends on PreprocessorInterface, not on any concrete implementation.
     """
-
-    def __init__(self, dataframe):
+    def __init__(self, dataframe: pd.DataFrame, preprocessor: PreprocessorInterface):
         self.dataframe = dataframe.reset_index(drop=True)
-    
-    def __len__(self):
-        return len(self.dataframe) # Return the total number of patients
-    
-    def __getitem__(self,idx):
+        self.preprocessor = preprocessor
+
+    def __len__(self) -> int:
+        return len(self.dataframe)
+
+    def __getitem__(self, idx: int):
         file_path = self.dataframe.loc[idx, 'Path']
         label = self.dataframe.loc[idx, 'Label']
 
-        img_array = load_and_preprocess_image(file_path)
+        # Delegate preprocessing to the injected strategy
+        img_array = self.preprocessor.process(file_path)
 
-        img_tensor = torch.tensor(img_array, dtype=torch.float32).unsqueeze(0) # Add channel dimension
+        # Add channel dimension: (D, H, W) -> (1, D, H, W)
+        img_tensor = torch.tensor(img_array, dtype=torch.float32).unsqueeze(0)
         label_tensor = torch.tensor(label, dtype=torch.long)
 
         return img_tensor, label_tensor
