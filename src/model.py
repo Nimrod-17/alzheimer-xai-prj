@@ -12,22 +12,22 @@ class Alzheimer3DCNN(nn.Module):
 
         # --- FEATURE EXTRACTION ---
         self.conv_block1 = nn.Sequential(
-            nn.Conv3d(in_channels=1, out_channels=8, kernel_size=3, padding=1),
-            nn.BatchNorm3d(8),
-            nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2)
-        )
-
-        self.conv_block2 = nn.Sequential(
-            nn.Conv3d(in_channels=8, out_channels=16, kernel_size=3, padding=1),
+            nn.Conv3d(in_channels=1, out_channels=16, kernel_size=3, padding=1),
             nn.BatchNorm3d(16),
             nn.ReLU(),
             nn.MaxPool3d(kernel_size=2, stride=2)
         )
 
-        self.conv_block3 = nn.Sequential(
+        self.conv_block2 = nn.Sequential(
             nn.Conv3d(in_channels=16, out_channels=32, kernel_size=3, padding=1),
             nn.BatchNorm3d(32),
+            nn.ReLU(),
+            nn.MaxPool3d(kernel_size=2, stride=2)
+        )
+
+        self.conv_block3 = nn.Sequential(
+            nn.Conv3d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
+            nn.BatchNorm3d(64),
             nn.ReLU(),
             nn.MaxPool3d(kernel_size=2, stride=2)
         )
@@ -38,10 +38,10 @@ class Alzheimer3DCNN(nn.Module):
         # --- CLASSIFICATION HEAD ---
         # 32 channels * 2 * 2 * 2 = 256 input features
         self.classifier = nn.Sequential(
-            nn.Linear(in_features=256, out_features=64),
+            nn.Linear(in_features=512, out_features=128),
             nn.ReLU(),
-            nn.Dropout(p=0.5),
-            nn.Linear(in_features=64, out_features=2)
+            nn.Dropout(p=0.6),
+            nn.Linear(in_features=128, out_features=2)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
