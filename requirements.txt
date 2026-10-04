@@ -1,0 +1,19 @@
+# PyTorch is installed separately to match the GPU (an RTX 50xx needs CUDA 12.8 builds), e.g.:
+#   pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
+# Tested with torch 2.12.0.dev20260408+cu128.
+
+numpy==2.4.4
+pandas==3.0.2
+scipy==1.17.1
+scikit-learn==1.8.0
+matplotlib==3.10.8
+
+# Neuroimaging
+nibabel==5.4.2
+simpleitk==2.5.5
+nilearn==0.14.1
+HD_BET==2.0.1
+nnunetv2==2.7.0
+
+# Explainability
+captum==0.9.0

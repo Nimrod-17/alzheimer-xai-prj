@@ -2,54 +2,74 @@ import torch
 import torch.nn as nn
 
 
-class Alzheimer3DCNN(nn.Module):
+class ResidualBlock3D(nn.Module):
     """
-    3D Convolutional Neural Network for Alzheimer's disease classification from MRI scans.
+    Basic residual block: two 3x3x3 convolutions with GroupNorm.
+    GroupNorm is used instead of BatchNorm because 3D volumes force very small batches.
     """
 
-    def __init__(self):
-        super(Alzheimer3DCNN, self).__init__()
+    def __init__(self, in_channels: int, out_channels: int, stride: int = 1, groups: int = 8):
+        super().__init__()
+        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.norm1 = nn.GroupNorm(groups, out_channels)
+        self.conv2 = nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        self.norm2 = nn.GroupNorm(groups, out_channels)
+        # Non-inplace activations keep every intermediate tensor available to gradient-based XAI methods
+        self.relu = nn.ReLU(inplace=False)
 
-        # --- FEATURE EXTRACTION ---
-        self.conv_block1 = nn.Sequential(
-            nn.Conv3d(in_channels=1, out_channels=16, kernel_size=3, padding=1),
-            nn.BatchNorm3d(16),
-            nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2)
-        )
-
-        self.conv_block2 = nn.Sequential(
-            nn.Conv3d(in_channels=16, out_channels=32, kernel_size=3, padding=1),
-            nn.BatchNorm3d(32),
-            nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2)
-        )
-
-        self.conv_block3 = nn.Sequential(
-            nn.Conv3d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
-            nn.BatchNorm3d(64),
-            nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2)
-        )
-
-        # Reduces each feature map to a fixed (2, 2, 2) spatial size before flattening
-        self.global_pool = nn.AdaptiveAvgPool3d((2, 2, 2))
-
-        # --- CLASSIFICATION HEAD ---
-        # 32 channels * 2 * 2 * 2 = 256 input features
-        self.classifier = nn.Sequential(
-            nn.Linear(in_features=512, out_features=128),
-            nn.ReLU(),
-            nn.Dropout(p=0.6),
-            nn.Linear(in_features=128, out_features=2)
-        )
+        self.shortcut = nn.Identity()
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.GroupNorm(groups, out_channels),
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.conv_block1(x)
-        x = self.conv_block2(x)
-        x = self.conv_block3(x)
-        x = self.global_pool(x)
-        x = torch.flatten(x, start_dim=1)  # Flatten to 1D vector, keep batch dimension
-        x = self.classifier(x)
-        return x
-    
+        out = self.relu(self.norm1(self.conv1(x)))
+        out = self.norm2(self.conv2(out))
+        return self.relu(out + self.shortcut(x))
+
+
+class ResNet3DClassifier(nn.Module):
+    """
+    Lightweight 3D ResNet for Alzheimer's risk classification from MNI-aligned T1w volumes.
+
+    For a 128 x 160 x 128 input the spatial resolution goes 64x80x64 (stem) -> 32x40x32 -> 16x20x16 -> 8x10x8.
+    The head is global average pooling + a single linear layer, so the class score is a linear
+    combination of the last feature maps: this keeps Grad-CAM maps faithful to the decision.
+    `target_layer` exposes the last convolutional stage for XAI tools.
+    """
+
+    def __init__(self, in_channels: int = 1, num_classes: int = 2,
+                 widths: tuple[int, ...] = (16, 32, 64, 128), dropout: float = 0.4):
+        super().__init__()
+
+        self.stem = nn.Sequential(
+            nn.Conv3d(in_channels, widths[0], kernel_size=5, stride=2, padding=2, bias=False),
+            nn.GroupNorm(8, widths[0]),
+            nn.ReLU(inplace=False),
+        )
+
+        stages = []
+        for stage_in, stage_out in zip(widths[:-1], widths[1:]):
+            stages.append(nn.Sequential(
+                ResidualBlock3D(stage_in, stage_out, stride=2),
+                ResidualBlock3D(stage_out, stage_out),
+            ))
+        self.stages = nn.Sequential(*stages)
+
+        self.global_pool = nn.AdaptiveAvgPool3d(1)
+        self.dropout = nn.Dropout(p=dropout)
+        self.classifier = nn.Linear(widths[-1], num_classes)
+
+    @property
+    def target_layer(self) -> nn.Module:
+        """Last convolutional stage, the standard Grad-CAM target."""
+        return self.stages[-1]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.stem(x)
+        x = self.stages(x)
+        x = torch.flatten(self.global_pool(x), start_dim=1)
+        return self.classifier(self.dropout(x))
+

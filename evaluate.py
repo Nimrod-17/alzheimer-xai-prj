@@ -1,108 +1,57 @@
-import os
+import json
+
 import torch
-import matplotlib.pyplot as plt
-from torch.utils.data import DataLoader, random_split
+import torch.nn as nn
 
+from src.factories import build_data_module, build_model
+from src.metrics import BinaryClassificationMetrics, BootstrapConfidenceInterval
+from src.trainer import ModelTrainer
 
-from src.data_loader import ExcelClinicalParser, MRIFileResolver, MRIDataLoader
-from src.preprocessing import ZScoreNormalizer
-from src.dataset import MRIDataset
-from src.model import Alzheimer3DCNN
+# --- Configuration ---
+MODEL_PATH = 'models/oasis3_resnet3d.pth'
+METADATA_PATH = 'models/oasis3_resnet3d.json'
+BATCH_SIZE = 8
 
-# --- CONFIGURAZIONE ---
-EXCEL_PATH = 'data/Demographic and Clinical Data/oasis_cross-sectional.xlsx'
-DATA_DIR = 'data/cleaned_data'
-MODEL_PATH = 'models/best_model.pth'
-BATCH_SIZE = 4
-VAL_SPLIT = 0.15
-TEST_SPLIT = 0.15
-RANDOM_SEED = 42
 
 def main():
-    print("--- 🩺 Avvio Valutazione Clinica Modello ---")
-    
-    # 1. Preparazione dell'hardware e del modello
+    print("--- Clinical evaluation on the held-out test subjects ---")
+
+    # 1. Load the best checkpoint and the threshold chosen on validation
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = Alzheimer3DCNN().to(device)
-    model.load_state_dict(torch.load(MODEL_PATH, weights_only=True))
-    model.eval() # Spegniamo il Dropout per l'esame!
-    
-    # 2. Caricamento dei dati
-    print("Caricamento pazienti...")
-    parser = ExcelClinicalParser(excel_path=EXCEL_PATH)
-    resolver = MRIFileResolver(base_data_dir=DATA_DIR, search_pattern="{id}_stripped.nii.gz")
-    df = MRIDataLoader(parser, resolver).load_data()
-    
-    dataset = MRIDataset(dataframe=df, preprocessor=ZScoreNormalizer())
+    model = build_model().to(device)
+    model.load_state_dict(torch.load(MODEL_PATH, weights_only=True, map_location=device))
+    with open(METADATA_PATH, encoding='utf-8') as metadata_file:
+        checkpoint_info = json.load(metadata_file)
+    threshold = checkpoint_info['threshold']
+    print(f"Checkpoint from epoch {checkpoint_info['epoch']} (val AUC {checkpoint_info['auc']:.3f}), "
+          f"threshold {threshold:.3f}")
 
-    total_size = len(dataset)
-    test_size = int(total_size * TEST_SPLIT)
-    val_size = int(total_size * VAL_SPLIT)
-    train_size = total_size - test_size - val_size
+    # 2. Test subjects: one fixed scan each, never seen during training or model selection
+    data = build_data_module(batch_size=BATCH_SIZE, augment=False)
+    data.setup()
 
-    generator = torch.Generator().manual_seed(RANDOM_SEED)
+    trainer = ModelTrainer(model=model, optimizer=None, criterion=nn.CrossEntropyLoss(), device=device)
+    _, labels, probabilities = trainer.evaluate(data.test_loader())
 
-    _, _, test_ds = random_split(
-        dataset, 
-        [train_size, val_size, test_size], 
-        generator=generator
-    )
+    # 3. Metrics with 95% bootstrap confidence intervals
+    metrics = BinaryClassificationMetrics()
+    results = metrics.compute(labels, probabilities, threshold)
+    intervals = BootstrapConfidenceInterval(metrics).compute(labels, probabilities, threshold)
 
-    loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False)
-    
-    # 3. Contatori per la Matrice di Confusione
-    TP = 0  # True Positive (Malato previsto Malato)
-    TN = 0  # True Negative (Sano previsto Sano)
-    FP = 0  # False Positive (Sano previsto Malato - Falso Allarme)
-    FN = 0  # False Negative (Malato previsto Sano - Caso Perso!)
-    
-    print("Analisi delle risonanze in corso...\n")
-    
-    with torch.no_grad():
-        for images, labels in loader:
-            images, labels = images.to(device), labels.to(device)
-            outputs = model(images)
-            
-            # Troviamo la classe prevista (0 o 1)
-            probability = torch.softmax(outputs, dim=1)
+    # 4. Report
+    print("=" * 52)
+    print(f" TEST REPORT — {len(labels)} subjects ({int(labels.sum())} positive)")
+    print("=" * 52)
+    for name in ('auc', 'balanced_accuracy', 'sensitivity', 'specificity'):
+        low, high = intervals[name]
+        print(f"{name:<18}: {results[name]:.3f}  (95% CI {low:.3f}–{high:.3f})")
+    print(f"{'f1':<18}: {results['f1']:.3f}")
+    print("-" * 52)
+    print("CONFUSION MATRIX:")
+    print(f"  True Positive (TP) : {results['tp']:>3} | False Positive (FP): {results['fp']:>3}")
+    print(f"  False Negative (FN): {results['fn']:>3} | True Negative (TN) : {results['tn']:>3}")
+    print("=" * 52)
 
-            prob_alz = probability[:,1]
-            soglia = 0.40
-            predicted = (prob_alz >= soglia).int()
-            
-            for i in range(len(labels)):
-                vero = labels[i].item()
-                previsto = predicted[i].item()
-                
-                if vero == 1 and previsto == 1:
-                    TP += 1
-                elif vero == 0 and previsto == 0:
-                    TN += 1
-                elif vero == 0 and previsto == 1:
-                    FP += 1
-                elif vero == 1 and previsto == 0:
-                    FN += 1
-                    
-    # 4. Calcolo delle Metriche Mediche
-    totale = TP + TN + FP + FN
-    accuratezza = (TP + TN) / totale if totale > 0 else 0
-    sensibilita = TP / (TP + FN) if (TP + FN) > 0 else 0
-    specificita = TN / (TN + FP) if (TN + FP) > 0 else 0
-    
-    # 5. Stampa del Referto
-    print("="*40)
-    print(" 🏥 REFERTO UFFICIALE DELL'IA 🏥")
-    print("="*40)
-    print(f"Pazienti Totali Analizzati : {totale}")
-    print("-" * 40)
-    print(f"✅ Accuratezza Globale    : {accuratezza * 100:.2f}%")
-    print(f"🔴 Sensibilità (Malati)   : {sensibilita * 100:.2f}%")
-    print(f"🟢 Specificità (Sani)     : {specificita * 100:.2f}%")
-    print("-" * 40)
-    print("MATRICE DI CONFUSIONE:")
-    print(f"  Vero Positivo (TP): {TP} | Falso Positivo (FP): {FP}")
-    print(f"  Falso Negativo(FN): {FN} | Vero Negativo (TN): {TN}")
-    print("="*40)
 
 if __name__ == '__main__':
     main()

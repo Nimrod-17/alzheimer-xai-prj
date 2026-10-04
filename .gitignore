@@ -211,3 +211,22 @@ data/
 *.nii
 *.nii.gz
 *.dcm
+
+# --- SCRIPT E FILE TEMPORANEI OASIS (CUSTOM) ---
+# Esclude tutti i file di cookie generati dal login
+.cookies-*.txt
+
+# Esclude gli script di utilità per download e ricerca
+cerca_dati.py
+download_oas3.py
+organizer.py
+
+# Esclude gli script bash originali di OASIS
+download_oasis_scans*.sh
+
+# Esclude tutte le liste pazienti e file di mapping in CSV
+*.csv
+
+# Training runs and XAI outputs (derived from patient data)
+runs/
+results/

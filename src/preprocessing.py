@@ -1,35 +1,30 @@
 import numpy as np
 import nibabel as nib
+import torch
+import torch.nn.functional as F
 from src.interfaces import PreprocessorInterface
 
-class MinMaxNormalizer(PreprocessorInterface):
+
+class CropResizeLoader(PreprocessorInterface):
     '''
-    SRP: single responsibility — apply min-max normalization to a 3D MRI image.
-    OCP: to add z-score or other strategies, create a new class without touching this one.
+    Loader for volumes already preprocessed into MNI space (skull-stripped, bias-corrected, z-scored).
+    Crops a fixed box around the brain and resamples it to the network input shape.
+    Both operations are the same for every subject, so voxel positions stay comparable across the dataset.
     '''
+    # Brain box in the 1 mm MNI152 grid (197 x 233 x 189), centred on the template brain with a margin
+    DEFAULT_CROP = ((18, 178), (17, 217), (0, 160))
+
+    def __init__(self, target_shape: tuple[int, int, int] = (128, 160, 128),
+                 crop: tuple[tuple[int, int], ...] = DEFAULT_CROP):
+        self.target_shape = target_shape
+        self.crop = tuple(slice(start, stop) for start, stop in crop)
+
     def preprocess(self, file_path: str) -> np.ndarray:
-        img = nib.load(file_path)
-        img_data = np.squeeze(img.get_fdata())
+        volume = np.asarray(nib.load(file_path).get_fdata(dtype=np.float32))[self.crop]
 
-        min_val = np.min(img_data)
-        max_val = np.max(img_data)
+        if volume.shape == self.target_shape:
+            return volume
 
-        # Avoid division by zero for completely blank images
-        if max_val - min_val > 0:
-            return (img_data - min_val) / (max_val - min_val)
-        
-        return img_data
-
-class ZScoreNormalizer(PreprocessorInterface):
-    '''
-    Alternative preprocessor using z-score standardization.
-    Drops in as a replacement anywhere PreprocessorInterface is expected.
-    '''
-    def preprocess(self, file_path: str) -> np.ndarray:
-        img = nib.load(file_path)
-        img_data = np.squeeze(img.get_fdata())
-        std = np.std(img_data)
-        if std > 0:
-            return (img_data - np.mean(img_data)) / std
-        
-        return img_data
+        tensor = torch.from_numpy(np.ascontiguousarray(volume))[None, None]
+        resized = F.interpolate(tensor, size=self.target_shape, mode='trilinear', align_corners=False)
+        return resized[0, 0].numpy()
