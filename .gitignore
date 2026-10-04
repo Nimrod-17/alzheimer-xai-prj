@@ -230,3 +230,7 @@ download_oasis_scans*.sh
 # Training runs and XAI outputs (derived from patient data)
 runs/
 results/
+
+# Trained model weights (derived from OASIS data, covered by the Data Use Agreement)
+models/*.pth
+models/*.json
